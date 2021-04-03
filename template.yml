@@ -28,8 +28,8 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub '${ProjectId}-customer-profile-${Stage}fn'
-      CodeUri: customer/
-      Handler: profile.handler
+      CodeUri: ./
+      Handler: customer/profile.handler
       Role:
         Fn::GetAtt:
         - LambdaExecutionRole

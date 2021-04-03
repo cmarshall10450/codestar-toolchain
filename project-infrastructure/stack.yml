@@ -121,6 +121,7 @@ Resources:
         PolicyDocument:
           Statement:
           - Action:
+            - codedeploy:*
             - s3:*
             - lambda:*
             - dynamodb:*
