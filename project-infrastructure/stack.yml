@@ -1,0 +1,343 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Toolchain for AWS SAM projects
+
+Parameters:
+  # You can provide these parameters in your CreateProject API call.
+  ProjectId:
+    Type: String
+    Description: Name of your application.
+  Ring:
+    Type: String
+    Description: Deployment ring e.g dev, preprod, prod
+    AllowedValues:
+      - dev
+      - preprod
+      - prod
+  CodeBuildRuntimePlatform:
+    Type: String
+    Description: Which linux platform to run builds on
+    AllowedValues:
+      - amazonlinux2
+      - ubuntu
+  CodeBuildRuntime:
+    Type: String
+    Description: CodeBuild runtime language
+    Default: python
+  CodeBuildBranch:
+    Type: String
+    Description: Branch to track changes and build from
+    Default: master
+    
+Mappings:
+  RuntimeMappings:
+    python-3.8:
+      amazonlinux2: aws/codebuild/amazonlinux2-x86_64-standard:3.0
+      ubuntu: aws/codebuild/standard:5.0
+
+Resources:
+  CodeCommitRepo:
+    Type: AWS::CodeCommit::Repository
+    Description: AWS CodeCommit repository for application source code
+    Properties:
+      RepositoryDescription: !Sub "${ProjectId} repository"
+      RepositoryName: !Ref ProjectId
+
+  # Each AWS CodeBuild project requires a role for AWS CodeBuild to operate on your code.
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Description: Creating service role in IAM for AWS CodeBuild
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: codebuild.amazonaws.com
+      Path: /
+      RoleName: !Sub "${ProjectId}-codebuild-role"
+
+  CodeBuildPolicy:
+    Type: AWS::IAM::Policy
+    Description: IAM policy for AWS CodeBuild role
+    Properties:
+      PolicyName: !Sub '${ProjectId}-codebuild-role-policy'
+      PolicyDocument:
+        Statement:
+        - Action:
+          - logs:*
+          - s3:*
+          - kms:GenerateDataKey*
+          - kms:Encrypt
+          - kms:Decrypt
+          Effect: Allow
+          Resource: '*'
+      Roles:
+      - !Ref CodeBuildRole
+
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    DependsOn:
+    - CodeBuildPolicy
+    Properties:
+      Name: !Ref ProjectId
+      Description: "CodeBuild Project"
+      ServiceRole: !Ref 'CodeBuildRole'
+      Source:
+        Type: codepipeline
+      Artifacts:
+        Packaging: zip
+        Type: codepipeline
+      Environment:
+        ComputeType: small
+        EnvironmentVariables:
+        - Name: S3_BUCKET
+          Value: !Ref 'S3Bucket'
+        Image: !FindInMap 
+        - RuntimeMappings
+        - !Ref CodeBuildRuntime
+        - !Ref CodeBuildRuntimePlatform
+        Type: LINUX_CONTAINER
+      LogsConfig:
+        CloudWatchLogs:
+          GroupName: !Sub "${ProjectId}-logs"
+          StreamName: build-logs
+          Status: ENABLED
+
+  CloudFormationTrustRole:
+    Type: AWS::IAM::Role
+    Description: Service role in IAM for AWS CloudFormation
+    Properties:
+      RoleName: !Sub "${ProjectId}-cloudformation-role"
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Action: sts:AssumeRole
+          Principal:
+            Service:
+            - cloudformation.amazonaws.com
+      Policies:
+      - PolicyName: !Sub "${ProjectId}-cloudformation-role-policy"
+        PolicyDocument:
+          Statement:
+          - Action:
+            - s3:*
+            - lambda:*
+            - dynamodb:*
+            - kinesis:*
+            - cloudformation:*
+            - sns:*
+            - config:*
+            - iam:*
+            - apigateway:*
+            Effect: Allow
+            Resource: '*'
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Description: Amazon S3 bucket for AWS CodePipeline artifacts
+    Properties:
+      BucketName: !Sub "${ProjectId}-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+      - Key: Name
+        Value: !Sub "${ProjectId}-S3Bucket"
+    DeletionPolicy: Retain
+
+  S3ArtifactBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Description: Amazon S3 bucket policy for AWS CodePipeline access
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Id: SSEAndSSLPolicy
+        Version: 2012-10-17
+        Statement:
+        - Sid: WhitelistedGet
+          Effect: Allow
+          Action:
+          - s3:GetObject
+          - s3:GetObjectVersion
+          - s3:GetBucketVersioning
+          Condition:
+            Bool:
+              aws:SecureTransport: false
+          Principal:
+            AWS:
+            - !GetAtt 'CodePipelineTrustRole.Arn'
+            - !GetAtt 'CodeBuildRole.Arn'
+            - !GetAtt 'CloudFormationTrustRole.Arn'
+          Resource:
+          - !Sub 'arn:aws:s3:::${S3Bucket}'
+          - !Sub 'arn:aws:s3:::${S3Bucket}/*'
+        - Sid: WhitelistedPut
+          Effect: Allow
+          Action:
+          - s3:PutObject
+          Principal:
+            AWS:
+            - !GetAtt 'CodePipelineTrustRole.Arn'
+            - !GetAtt 'CodeBuildRole.Arn'
+          Resource:
+          - !Sub 'arn:aws:s3:::${S3Bucket}'
+          - !Sub 'arn:aws:s3:::${S3Bucket}/*'
+
+  CodePipelineTrustRole:
+    Type: AWS::IAM::Role
+    Description: Creating service role in IAM for AWS CodePipeline
+    Properties:
+      RoleName: !Sub "${ProjectId}-codepipeline-role"
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Action: sts:AssumeRole
+          Principal:
+            Service:
+            - codepipeline.amazonaws.com
+      Policies:
+      - PolicyName: !Sub "${ProjectId}-codepipeline-role-policy"
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action:
+            - s3:*
+            - codecommit:*
+            - codebuild:*
+            - cloudformation:*
+            Resource: '*'
+          - Effect: Allow
+            Action:
+            - iam:PassRole
+            Resource:
+            - !GetAtt CloudFormationTrustRole.Arn
+
+  ProjectPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Description: "A deployment pipeline for the project in AWS CodePipeline"
+    DependsOn:
+    - CodePipelineTrustRole
+    - S3Bucket
+    - CodeBuildProject
+    - CloudFormationTrustRole
+    Properties:
+      Name: !Sub "${ProjectId}-pipeline"
+      ArtifactStore:
+        Location: !Ref S3Bucket
+        Type: S3
+      RoleArn: !GetAtt CodePipelineTrustRole.Arn
+      Stages:
+      - Name: Source
+        Actions:
+        - Name: ApplicationSource
+          RunOrder: 1
+          ActionTypeId:
+            Category: Source
+            Owner: AWS
+            Provider: CodeCommit
+            Version: 1
+          Configuration:
+            RepositoryName: !Ref ProjectId
+            BranchName: !Ref CodeBuildBranch
+            PollForSourceChanges: false
+          InputArtifacts: []
+          OutputArtifacts:
+          - Name: !Sub "${ProjectId}-source-artifact"
+      - Name: Build
+        Actions:
+        - Name: PackageExport
+          RunOrder: 1
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Provider: CodeBuild
+            Version: 1
+          Configuration:
+            ProjectName: !Ref 'ProjectId'
+          InputArtifacts:
+          - Name: !Sub "${ProjectId}-source-artifact"
+          OutputArtifacts:
+          - Name: !Sub "${ProjectId}-build-artifact"
+      - Name: Deploy
+        Actions:
+        - Name: GenerateChangeSet
+          RunOrder: 1
+          ActionTypeId:
+            Category: Deploy
+            Owner: AWS
+            Provider: CloudFormation
+            Version: 1
+          Configuration:
+            StackName: !Sub "${ProjectId}-stack"
+            ChangeSetName: pipeline-changeset
+            ActionMode: CHANGE_SET_REPLACE
+            Capabilities: CAPABILITY_NAMED_IAM
+            RoleArn: !GetAtt 'CloudFormationTrustRole.Arn'
+            ParameterOverrides: !Sub '{"ProjectId":"${ProjectId}", "Stage": ${Ring}}'
+            TemplatePath: !Sub "${ProjectId}-build-artifact::template-export.yml"
+          InputArtifacts:
+          - Name: !Sub "${ProjectId}-build-artifact"
+          OutputArtifacts: []
+        - Name: ExecuteChangeSet
+          RunOrder: 2
+          ActionTypeId:
+            Category: Deploy
+            Owner: AWS
+            Provider: CloudFormation
+            Version: 1
+          Configuration:
+            StackName: !Sub "${ProjectId}-stack"
+            ActionMode: CHANGE_SET_EXECUTE
+            ChangeSetName: pipeline-changeset
+          InputArtifacts: []
+          OutputArtifacts: []
+
+  SourceEventRole:
+    Type: AWS::IAM::Role
+    Description: IAM role to allow Amazon CloudWatch Events to trigger AWS CodePipeline execution
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service:
+            - events.amazonaws.com
+          Sid: 1
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action:
+            - codepipeline:StartPipelineExecution
+            Effect: Allow
+            Resource:
+            - !Sub "arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${ProjectId}-pipeline"
+        PolicyName: !Sub "${ProjectId}-cloudwatch-event-role-policy"
+      RoleName: !Sub "${ProjectId}-cloudwatch-event-role"
+
+  SourceEvent:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${ProjectId}-source-event"
+      Description: Rule for Amazon CloudWatch Events to detect changes to the source repository and trigger pipeline execution
+      EventPattern:
+        detail:
+          event:
+          - referenceCreated
+          - referenceUpdated
+          referenceName: 
+          - !Ref ProjectId
+          referenceType:
+          - branch
+        detail-type:
+        - CodeCommit Repository State Change
+        resources:
+        - !GetAtt 'CodeCommitRepo.Arn'
+        source:
+        - aws.codecommit
+      State: ENABLED
+      Targets:
+      - Arn: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${ProjectId}-pipeline'
+        Id: ProjectPipelineTarget
+        RoleArn: !GetAtt 'SourceEventRole.Arn'

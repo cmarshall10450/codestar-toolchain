@@ -6,10 +6,7 @@ phases:
       python: 3.8
     commands:
       - pip install --upgrade awscli
-
-  pre_build:
-    commands:
-      - python -m unittest discover tests
+      - pip install -r requirements.txt
   
   build:
     commands:
