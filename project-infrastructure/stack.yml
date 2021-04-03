@@ -274,7 +274,7 @@ Resources:
             ActionMode: CHANGE_SET_REPLACE
             Capabilities: CAPABILITY_NAMED_IAM
             RoleArn: !GetAtt 'CloudFormationTrustRole.Arn'
-            ParameterOverrides: !Sub '{"ProjectId":"${ProjectId}", "Stage": ${Ring}}'
+            ParameterOverrides: !Sub '{"ProjectId":"${ProjectId}", "Stage": "${Ring}", "CodeDeployRole": "${CodeDeploy}"}'
             TemplatePath: !Sub "${ProjectId}-build-artifact::template-export.yml"
           InputArtifacts:
           - Name: !Sub "${ProjectId}-build-artifact"
@@ -292,6 +292,22 @@ Resources:
             ChangeSetName: pipeline-changeset
           InputArtifacts: []
           OutputArtifacts: []
+
+  CodeDeployRole:
+    Type: AWS::IAM::Role
+    Description: Creating service role in IAM for AWS CodeDeploy
+    Properties:
+      RoleName: !Sub "${ProjectId}-codedeploy-role"
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Action: sts:AssumeRole
+          Principal:
+            Service:
+            - codedeploy.amazonaws.com
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSCodeDeployRoleForLambda
 
   SourceEventRole:
     Type: AWS::IAM::Role
