@@ -18,11 +18,6 @@ Globals:
   Function:
     AutoPublishAlias: live
     Runtime: python3.7
-    Role:
-        Fn::GetAtt:
-        - LambdaExecutionRole
-        - Arn
-    Stage: !Sub ${Stage}
     DeploymentPreference:
       Enabled: true
       Type: Canary10Percent5Minutes
@@ -35,6 +30,10 @@ Resources:
       FunctionName: !Sub '${ProjectId}-customer-profile-${Stage}fn'
       CodeUri: customer/
       Handler: profile.handler
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
       Events:
         CreateCustomerProfile:
           Type: Api

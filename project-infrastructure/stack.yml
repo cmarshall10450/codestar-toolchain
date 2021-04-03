@@ -22,7 +22,7 @@ Parameters:
   CodeBuildRuntime:
     Type: String
     Description: CodeBuild runtime language
-    Default: python
+    Default: python-3.8
   CodeBuildBranch:
     Type: String
     Description: Branch to track changes and build from
@@ -220,6 +220,7 @@ Resources:
     - CodePipelineTrustRole
     - S3Bucket
     - CodeBuildProject
+    - CodeDeployTrustRole
     - CloudFormationTrustRole
     Properties:
       Name: !Sub "${ProjectId}-pipeline"
@@ -274,7 +275,7 @@ Resources:
             ActionMode: CHANGE_SET_REPLACE
             Capabilities: CAPABILITY_NAMED_IAM
             RoleArn: !GetAtt 'CloudFormationTrustRole.Arn'
-            ParameterOverrides: !Sub '{"ProjectId":"${ProjectId}", "Stage": "${Ring}", "CodeDeployRole": "${CodeDeploy}"}'
+            ParameterOverrides: !Sub '{"ProjectId":"${ProjectId}", "Stage": "${Ring}", "CodeDeployRole": "${CodeDeployTrustRole.Arn}"}'
             TemplatePath: !Sub "${ProjectId}-build-artifact::template-export.yml"
           InputArtifacts:
           - Name: !Sub "${ProjectId}-build-artifact"
@@ -293,7 +294,7 @@ Resources:
           InputArtifacts: []
           OutputArtifacts: []
 
-  CodeDeployRole:
+  CodeDeployTrustRole:
     Type: AWS::IAM::Role
     Description: Creating service role in IAM for AWS CodeDeploy
     Properties:
