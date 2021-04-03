@@ -33,13 +33,18 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub '${ProjectId}-customer-profile-${Stage}fn'
-      Handler: customer/profile.handler
+      CodeUri: customer/
+      Handler: profile.handler
       Events:
         CreateCustomerProfile:
           Type: Api
           Properties:
             Path: /customer/profile
             Method: post
+      Environment:
+        Variables:
+          LOG_LEVEL: INFO
+          POWERTOOLS_SERVICE_NAME: CustomerProfile
   LambdaExecutionRole:
     Description: Creating service role in IAM for AWS Lambda
     Type: AWS::IAM::Role
