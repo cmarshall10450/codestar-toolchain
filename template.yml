@@ -24,10 +24,20 @@ Globals:
       Role: !Ref CodeDeployRole
 
 Resources:
+  Api:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "${ProjectId}-${Stage}-api"
+      StageName: !Ref Stage
+      Cors: 
+        AllowHeaders: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+        AllowMethods: "'DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT'"
+        AllowOrigin: "'*'"
+
   CustomerProfile:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub '${ProjectId}-customer-profile-${Stage}fn'
+      FunctionName: !Sub '${ProjectId}-customer-profile-${Stage}-fn'
       CodeUri: ./
       Handler: customer/profile.handler
       Role:
@@ -40,6 +50,7 @@ Resources:
           Properties:
             Path: /customer/profile
             Method: post
+            RestApiId: !Ref Api
       Environment:
         Variables:
           LOG_LEVEL: INFO

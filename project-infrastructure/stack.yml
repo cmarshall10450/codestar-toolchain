@@ -5,14 +5,7 @@ Parameters:
   # You can provide these parameters in your CreateProject API call.
   ProjectId:
     Type: String
-    Description: Name of your application.
-  Ring:
-    Type: String
-    Description: Deployment ring e.g dev, preprod, prod
-    AllowedValues:
-      - dev
-      - preprod
-      - prod
+    Description: Name of your application
   CodeBuildRuntimePlatform:
     Type: String
     Description: Which linux platform to run builds on
@@ -138,12 +131,12 @@ Resources:
     Type: AWS::S3::Bucket
     Description: Amazon S3 bucket for AWS CodePipeline artifacts
     Properties:
-      BucketName: !Sub "${ProjectId}-${AWS::AccountId}"
+      BucketName: !Sub "${ProjectId}-artifacts-${AWS::AccountId}"
       VersioningConfiguration:
         Status: Enabled
       Tags:
       - Key: Name
-        Value: !Sub "${ProjectId}-S3Bucket"
+        Value: !Sub "${ProjectId}-artifacts-${AWS::AccountId}"
     DeletionPolicy: Retain
 
   S3ArtifactBucketPolicy:
@@ -261,7 +254,7 @@ Resources:
           - Name: !Sub "${ProjectId}-source-artifact"
           OutputArtifacts:
           - Name: !Sub "${ProjectId}-build-artifact"
-      - Name: Deploy
+      - Name: DeployDev
         Actions:
         - Name: GenerateChangeSet
           RunOrder: 1
@@ -271,12 +264,12 @@ Resources:
             Provider: CloudFormation
             Version: 1
           Configuration:
-            StackName: !Sub "${ProjectId}-stack"
+            StackName: !Sub "${ProjectId}-dev-stack"
             ChangeSetName: pipeline-changeset
             ActionMode: CHANGE_SET_REPLACE
             Capabilities: CAPABILITY_NAMED_IAM
             RoleArn: !GetAtt 'CloudFormationTrustRole.Arn'
-            ParameterOverrides: !Sub '{"ProjectId":"${ProjectId}", "Stage": "${Ring}", "CodeDeployRole": "${CodeDeployTrustRole.Arn}"}'
+            ParameterOverrides: !Sub '{"ProjectId":"${ProjectId}", "Stage": "dev", "CodeDeployRole": "${CodeDeployTrustRole.Arn}"}'
             TemplatePath: !Sub "${ProjectId}-build-artifact::template-export.yml"
           InputArtifacts:
           - Name: !Sub "${ProjectId}-build-artifact"
@@ -289,7 +282,87 @@ Resources:
             Provider: CloudFormation
             Version: 1
           Configuration:
-            StackName: !Sub "${ProjectId}-stack"
+            StackName: !Sub "${ProjectId}-dev-stack"
+            ActionMode: CHANGE_SET_EXECUTE
+            ChangeSetName: pipeline-changeset
+          InputArtifacts: []
+          OutputArtifacts: []
+      - Name: DeployPreprod
+        Actions:
+        - Name: DeploymentApprovalRequest
+          RunOrder: 1
+          ActionTypeId:
+            Category: Approval
+            Owner: AWS
+            Provider: Manual
+            Version: 1
+        - Name: GenerateChangeSet
+          RunOrder: 3
+          ActionTypeId:
+            Category: Deploy
+            Owner: AWS
+            Provider: CloudFormation
+            Version: 1
+          Configuration:
+            StackName: !Sub "${ProjectId}-preprod-stack"
+            ChangeSetName: pipeline-changeset
+            ActionMode: CHANGE_SET_REPLACE
+            Capabilities: CAPABILITY_NAMED_IAM
+            RoleArn: !GetAtt 'CloudFormationTrustRole.Arn'
+            ParameterOverrides: !Sub '{"ProjectId":"${ProjectId}", "Stage": "preprod", "CodeDeployRole": "${CodeDeployTrustRole.Arn}"}'
+            TemplatePath: !Sub "${ProjectId}-build-artifact::template-export.yml"
+          InputArtifacts:
+          - Name: !Sub "${ProjectId}-build-artifact"
+          OutputArtifacts: []
+        - Name: ExecuteChangeSet
+          RunOrder: 2
+          ActionTypeId:
+            Category: Deploy
+            Owner: AWS
+            Provider: CloudFormation
+            Version: 1
+          Configuration:
+            StackName: !Sub "${ProjectId}-preprod-stack"
+            ActionMode: CHANGE_SET_EXECUTE
+            ChangeSetName: pipeline-changeset
+          InputArtifacts: []
+          OutputArtifacts: []
+      - Name: DeployProd
+        Actions:
+        - Name: DeploymentApprovalRequest
+          RunOrder: 1
+          ActionTypeId:
+            Category: Approval
+            Owner: AWS
+            Provider: Manual
+            Version: 1
+        - Name: GenerateChangeSet
+          RunOrder: 2
+          ActionTypeId:
+            Category: Deploy
+            Owner: AWS
+            Provider: CloudFormation
+            Version: 1
+          Configuration:
+            StackName: !Sub "${ProjectId}-prod-stack"
+            ChangeSetName: pipeline-changeset
+            ActionMode: CHANGE_SET_REPLACE
+            Capabilities: CAPABILITY_NAMED_IAM
+            RoleArn: !GetAtt 'CloudFormationTrustRole.Arn'
+            ParameterOverrides: !Sub '{"ProjectId":"${ProjectId}", "Stage": "prod", "CodeDeployRole": "${CodeDeployTrustRole.Arn}"}'
+            TemplatePath: !Sub "${ProjectId}-build-artifact::template-export.yml"
+          InputArtifacts:
+          - Name: !Sub "${ProjectId}-build-artifact"
+          OutputArtifacts: []
+        - Name: ExecuteChangeSet
+          RunOrder: 3
+          ActionTypeId:
+            Category: Deploy
+            Owner: AWS
+            Provider: CloudFormation
+            Version: 1
+          Configuration:
+            StackName: !Sub "${ProjectId}-prod-stack"
             ActionMode: CHANGE_SET_EXECUTE
             ChangeSetName: pipeline-changeset
           InputArtifacts: []
