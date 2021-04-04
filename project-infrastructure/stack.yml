@@ -297,7 +297,7 @@ Resources:
             Provider: Manual
             Version: 1
         - Name: GenerateChangeSet
-          RunOrder: 3
+          RunOrder: 2
           ActionTypeId:
             Category: Deploy
             Owner: AWS
@@ -315,7 +315,7 @@ Resources:
           - Name: !Sub "${ProjectId}-build-artifact"
           OutputArtifacts: []
         - Name: ExecuteChangeSet
-          RunOrder: 2
+          RunOrder: 3
           ActionTypeId:
             Category: Deploy
             Owner: AWS
