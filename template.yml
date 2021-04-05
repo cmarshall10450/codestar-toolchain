@@ -255,7 +255,7 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties: 
       LogGroupName: !Sub "${ProjectId}-firehose-delivery-logs"
-      KmsKeyId: !Ref ProjectKmsKey
+      KmsKeyId: !GetAtt ProjectKmsKey.Arn
 
   FirehoseDeliveryLogStream:
     Type: AWS::Logs::LogStream
@@ -327,10 +327,6 @@ Resources:
             AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
           Action: kms:*
           Resource: '*'
-        - Sid: Allow administration of the key
-          Effect: Allow
-          Principal:
-            AWS: arn:aws:iam::463559647631:user/chris_marshall
         - Sid: Allow use of the key
           Effect: Allow
           Principal:
@@ -347,7 +343,7 @@ Resources:
   ProjectKmsKeyAlias:
     Type: AWS::KMS::Alias
     Properties: 
-      AliasName: !Sub "${ProjectId}-data-key"
+      AliasName: !Sub "alias/${ProjectId}-data-key"
       TargetKeyId: !Ref ProjectKmsKey
 
   DataBucket:

@@ -124,6 +124,10 @@ Resources:
             - config:*
             - iam:*
             - apigateway:*
+            - kms:CreateKey
+            - kms:PutKeyPolicy
+            - kms:EnableKeyRotation
+            - kms:ScheduleKeyDeletion
             Effect: Allow
             Resource: '*'
 
