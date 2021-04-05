@@ -199,7 +199,6 @@ Resources:
                       data:
                         type: string
 
-
   CustomerProfile:
     Type: AWS::Serverless::Function
     Properties:
@@ -241,7 +240,7 @@ Resources:
     Type: AWS::IAM::Role
     Description: Service role in IAM for AWS Api Gateway to send requests to AWS Kinesis Firehose
     Properties:
-      RoleName: !Sub '${ProjectId}-${Stage}-firehose-role'
+      RoleName: !Sub '${ProjectId}-${Stage}-apigatewayfirehose-role'
       AssumeRolePolicyDocument:
         Statement:
         - Effect: Allow
@@ -251,9 +250,111 @@ Resources:
       Path: /
       ManagedPolicyArns:
         - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonKinesisFirehoseFullAccess'
-    
+
+  FirehoseDeliveryLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: !Sub "${ProjectId}-firehose-delivery-logs"
+      KmsKeyId: !Ref ProjectKmsKey
+
+  FirehoseDeliveryLogStream:
+    Type: AWS::Logs::LogStream
+    Properties: 
+      LogStreamName: !Sub "${ProjectId}-firehose-delivery-log-stream"
+      LogGroupName: !Ref FirehoseDeliveryLogGroup
+
+  FirehoseDeliveryRole:
+    Type: AWS::IAM::Role
+    Description: Service role in IAM for AWS Api Gateway to send requests to AWS Kinesis Firehose
+    Properties:
+      RoleName: !Sub '${ProjectId}-${Stage}-firehose-delivery-role'
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [firehose.amazonaws.com]
+          Action: sts:AssumeRole
+      Path: /
+
+  FirehoseDeliveryRolePolicy:
+    Type: AWS::IAM::Policy
+    DependsOn:
+    - FirehoseDeliveryRole
+    Properties: 
+      PolicyName: !Sub "${ProjectId}-${Stage}-firehose-delivery-role-policy"
+      PolicyDocument:
+        Statement:
+        - Effect: Allow
+          Action:
+          - s3:AbortMultipartUpload
+          - s3:GetBucketLocation
+          - s3:GetObject
+          - s3:ListBucket
+          - s3:ListBucketMultipartUploads
+          - s3:PutObject
+          Resource:
+          - !GetAtt DataBucket.Arn
+          - !Sub "${DataBucket.Arn/*"
+        - Effect: Allow
+          Action:
+          - logs:PutLogEvents
+          Resource:
+          - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${FirehoseDeliveryLogGroup}:log-stream:${FirehoseDeliveryLogStream}"
+        # - Effect: Allow
+        #   Action:
+        #   - lambda:InvokeFunction
+        #   - lambda:GetFunctionConfiguration
+        #   Resource:
+        #   - arn:aws:lambda:region:account-id:function:function-name:function-version
+      Roles: 
+        - !GetAtt FirehoseDeliveryRole.Arn
+
+  ProjectKmsKey:
+    Type: AWS::KMS::Key
+    DependsOn:
+    - FirehoseDeliveryRole
+    Properties:
+      Description: KMS encryption key for project
+      EnableKeyRotation: true
+      PendingWindowInDays: 20
+      KeyPolicy:
+        Version: '2012-10-17'
+        Id: key-default-1
+        Statement:
+        - Sid: Enable IAM User Permissions
+          Effect: Allow
+          Principal:
+            AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+          Action: kms:*
+          Resource: '*'
+        - Sid: Allow administration of the key
+          Effect: Allow
+          Principal:
+            AWS: arn:aws:iam::463559647631:user/chris_marshall
+        - Sid: Allow use of the key
+          Effect: Allow
+          Principal:
+            AWS: !GetAtt FirehoseDeliveryRole.Arn
+          Action:
+          - kms:DescribeKey
+          - kms:Encrypt
+          - kms:Decrypt
+          - kms:ReEncrypt*
+          - kms:GenerateDataKey
+          - kms:GenerateDataKeyWithoutPlaintext
+          Resource: '*'
+
+  ProjectKmsKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties: 
+      AliasName: !Sub "${ProjectId}-data-key"
+      TargetKeyId: !Ref ProjectKmsKey
+
   DataBucket:
     Type: AWS::S3::Bucket
+    DependsOn:
+    - ProjectKmsKey
+    - ProjectKmsKeyAlias
     Properties:
       BucketName: !Sub "${ProjectId}-data-${AWS::AccountId}"
       VersioningConfiguration:
@@ -263,11 +364,31 @@ Resources:
           BlockPublicPolicy: true
           IgnorePublicAcls: true
           RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: 'aws:kms'
+              KMSMasterKeyID: !Ref ProjectKmsKey
+    DeletionPolicy: Retain
 
-  # FirehoseDeliveryStream:
-  #   Type: AWS::KinesisFirehose::DeliveryStream
-  #   Properties:
-  #     DeliveryStreamName: !Sub "${ProjectId}-${Stage}-delivery-stream"
-  #     DeliveryStreamType: DirectPut
-  #     ExtendedS3DestinationConfiguration:
-  #       BucketARN: !Ref DataBucket
+  FirehoseDeliveryStream:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    DependsOn:
+    - DataBucket
+    - FirehoseDeliveryRole
+    - FirehoseDeliveryRolePolicy
+    Properties:
+      DeliveryStreamName: !Sub "${ProjectId}-${Stage}-delivery-stream"
+      DeliveryStreamType: DirectPut
+      ExtendedS3DestinationConfiguration:
+        BucketARN: !GetAtt DataBucket.Arn
+        RoleARN: !GetAtt FirehoseDeliveryRole.Arn
+        EncryptionConfiguration:
+          KMSEncryptionConfiguration:
+            AWSKMSKeyARN: !GetAtt ProjectKmsKey.Arn
+        Prefix: processed/
+        ErrorOutputPrefix: erroneous/
+        CloudWatchLoggingOptions:
+          Enabled: true
+          LogGroupName: !Ref FirehoseDeliveryLogGroup
+          LogStreamName: !Ref FirehoseDeliveryLogStream
