@@ -117,6 +117,7 @@ Resources:
             - codedeploy:*
             - s3:*
             - lambda:*
+            - logs:*
             - dynamodb:*
             - kinesis:*
             - cloudformation:*
@@ -125,9 +126,12 @@ Resources:
             - iam:*
             - apigateway:*
             - kms:CreateKey
+            - kms:CreateAlias
             - kms:PutKeyPolicy
             - kms:EnableKeyRotation
             - kms:ScheduleKeyDeletion
+            - kms:DescribeKey
+            - kms:DeleteAlias
             Effect: Allow
             Resource: '*'
 

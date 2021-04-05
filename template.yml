@@ -294,7 +294,7 @@ Resources:
           - s3:PutObject
           Resource:
           - !GetAtt DataBucket.Arn
-          - !Sub "${DataBucket.Arn/*"
+          - !Sub "${DataBucket.Arn}/*"
         - Effect: Allow
           Action:
           - logs:PutLogEvents
@@ -307,7 +307,7 @@ Resources:
         #   Resource:
         #   - arn:aws:lambda:region:account-id:function:function-name:function-version
       Roles: 
-        - !GetAtt FirehoseDeliveryRole.Arn
+        - !Ref FirehoseDeliveryRole
 
   ProjectKmsKey:
     Type: AWS::KMS::Key
@@ -339,6 +339,21 @@ Resources:
           - kms:GenerateDataKey
           - kms:GenerateDataKeyWithoutPlaintext
           Resource: '*'
+        - Sid: Allow CloudWatch to encrypt logs
+          Effect: Allow
+          Principal:
+            Service: !Sub "logs.${AWS::Region}.amazonaws.com"
+          Action:
+          - kms:Encrypt*
+          - kms:Decrypt*
+          - kms:ReEncrypt*
+          - kms:GenerateDataKey*
+          - kms:Describe*
+          Resource: "*"
+          Condition:
+            ArnEquals:
+              kms:EncryptionContext:aws:logs:arn: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${ProjectId}-firehose-delivery-logs"
+
 
   ProjectKmsKeyAlias:
     Type: AWS::KMS::Alias
@@ -380,7 +395,7 @@ Resources:
         BucketARN: !GetAtt DataBucket.Arn
         RoleARN: !GetAtt FirehoseDeliveryRole.Arn
         EncryptionConfiguration:
-          KMSEncryptionConfiguration:
+          KMSEncryptionConfig:
             AWSKMSKeyARN: !GetAtt ProjectKmsKey.Arn
         Prefix: processed/
         ErrorOutputPrefix: erroneous/
